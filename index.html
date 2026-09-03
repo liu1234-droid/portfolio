@@ -205,9 +205,10 @@ if ('serviceWorker' in navigator) {
 
 
 <script>
-/* 启动引导：首屏只加载表格必需数据；头像/视频元数据延后加载，减少首次打开等待 */
-const CORE_SCRIPTS = ['data.js', 'tags.js', 'attrs.js', 'spam.js'];
-const RICH_SCRIPTS = ['avatars.js', 'videos.js'];
+/* 启动引导：首屏数据改走同一套外网后端静态资源（比 GitHub Pages 在国内下载快得多） */
+const DATA_ORIGIN = 'https://znxyvgsm.cn-east-fn.bytedance.net/assets/';
+const CORE_SCRIPTS = ['data.js', 'tags.js', 'attrs.js', 'spam.js'].map(x => DATA_ORIGIN + x);
+const RICH_SCRIPTS = ['avatars.js', 'videos.js'].map(x => DATA_ORIGIN + x);
 function loadScript(src) {
   return new Promise(function (res, rej) {
     const s = document.createElement('script');
@@ -257,9 +258,9 @@ const authors = (window.REAL_AUTHORS || []).filter(a => !SPAM[a.id]).map(a => ({
   tag1: (REAL_TAGS[a.id] && REAL_TAGS[a.id][0]) || '-',
   tag2: (REAL_TAGS[a.id] && REAL_TAGS[a.id][1]) || '-',
   atype: a.atype || '-',
-  customPrice: (REAL_ATTRS[a.id] && REAL_ATTRS[a.id].p != null) ? REAL_ATTRS[a.id].p : null,
-  cpm60: (REAL_ATTRS[a.id] && REAL_ATTRS[a.id].c != null) ? REAL_ATTRS[a.id].c : null,
-  crowd: (REAL_ATTRS[a.id] && REAL_ATTRS[a.id].k) ? Object.fromEntries(CROWDS.map((c, i) => [c, REAL_ATTRS[a.id].k[i]])) : null,
+  customPrice: REAL_ATTRS[a.id] ? (REAL_ATTRS[a.id].p != null ? REAL_ATTRS[a.id].p : (REAL_ATTRS[a.id].price != null ? REAL_ATTRS[a.id].price : null)) : null,
+  cpm60: REAL_ATTRS[a.id] ? (REAL_ATTRS[a.id].c != null ? REAL_ATTRS[a.id].c : (REAL_ATTRS[a.id].cpm60 != null ? REAL_ATTRS[a.id].cpm60 : null)) : null,
+  crowd: REAL_ATTRS[a.id] ? (REAL_ATTRS[a.id].k ? Object.fromEntries(CROWDS.map((c, i) => [c, REAL_ATTRS[a.id].k[i]])) : (REAL_ATTRS[a.id].crowd || null)) : null,
   real: null, region: null, growth: null, finish: null,
   formula: null, hook: null,
   interact: a.interact, price: a.price, cpm: a.cpm,
