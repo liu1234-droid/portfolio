@@ -611,7 +611,13 @@ $('resetAll').onclick = () => {
   track('filter_reset', {});
   render();
 };
-$('q').oninput = e => { state.q = e.target.value.trim().toLowerCase(); if (state.q) track('search', { q: state.q }); render(); };
+let searchTrackTimer = null;
+$('q').oninput = e => {
+  state.q = e.target.value.trim().toLowerCase();
+  render();
+  clearTimeout(searchTrackTimer);
+  if (state.q) searchTrackTimer = setTimeout(() => track('search', { q: state.q }), 700);
+};
 
 /* ===== 其他筛选：阈值全部由入池达人真实数据算出；收起为下拉筛选框，按类目分组 ===== */
 const quantile = (arr, p) => { const a = arr.slice().sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.max(0, Math.round((a.length - 1) * p)))]; };
@@ -1070,7 +1076,7 @@ try {
 /* GitHub 静态版 + 外网埋点后端：页面仍托管在 GitHub Pages，事件/热力图聚合走独立服务 */
 const API_BASE = 'https://znxyvgsm.cn-east-fn.bytedance.net';
 /* 正式统计起点：此前事件均为上线自动化验证产生，全部排除 */
-const TRACK_SINCE_MS = 1788426240000; // 2026-09-03 17:04:00 CST
+const TRACK_SINCE_MS = 1788427260000; // 2026-09-03 17:21:00 CST
 let QUEUE = [], SRV_OK = true;
 function pushRemote(rec) {
   if (ANALYTICS_VIEW) return;            // 内部统计/热力图页面不计入客户埋点
@@ -1282,7 +1288,7 @@ function renderTrackStat() {
   const keyRows = Object.entries(c).filter(([k]) => KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
   const othRows = Object.entries(c).filter(([k]) => !KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
   const head = STAT_SRC !== 'local'
-    ? `<div class="mb-1 text-[11px] text-slate-400">正式统计起点 2026/9/3 17:04 · ${SRC_NAME()} · 访客 ${SRV.uv} 人 · 关键行为 ${SRV.key_events} 次 · 点击 ${SRV.clicks} 次 · 事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`
+    ? `<div class="mb-1 text-[11px] text-slate-400">统计起点 2026/9/3 17:21 · ${SRC_NAME()} · 有效访问设备 ${SRV.uv} 台 · 关键行为 ${SRV.key_events} 次 · 点击 ${SRV.clicks} 次 · 事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`
     : `<div class="mb-1 text-[11px] text-slate-400">仅本机 · 关键行为 ${keyEventCount()} 次 · 点击 ${CLICKS.length} 次 · 事件 ${TRACK.length} 条</div>`;
   $('trackStat').innerHTML = head +
     `<div class="mt-1 text-[11px] font-semibold text-slate-500">关键行为</div>${keyRows || '<span class="text-slate-400">暂无</span>'}
