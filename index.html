@@ -4,10 +4,15 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>达人广场 · 泛进店选人</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="xlsx.full.min.js"></script>
+<!-- 静态编译的 Tailwind 样式（替代 cdn.tailwindcss.com，首屏少一个外部阻塞脚本，且无运行时 JIT 开销） -->
+<link rel="stylesheet" href="styles.css" />
 <script>
-tailwind.config = { theme: { extend: { colors: { brand: { 50:'#fff1f3',100:'#ffe4e9',200:'#ffccd6',300:'#ff9db0',400:'#ff6183',500:'#fe2c55',600:'#e51c46',700:'#c11239' } } } } }
+/* Service Worker：静态资源本地缓存，刷新/再次访问秒开（stale-while-revalidate，后台自动更新） */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(function () {});
+  });
+}
 </script>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
@@ -51,6 +56,12 @@ tailwind.config = { theme: { extend: { colors: { brand: { 50:'#fff1f3',100:'#ffe
 </style>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-800">
+
+<!-- 数据加载遮罩：数据文件就绪后由主逻辑移除 -->
+<div id="bootLoading" class="fixed inset-0 z-[999] flex flex-col items-center justify-center gap-3 bg-slate-50">
+  <div class="h-10 w-10 animate-spin rounded-full border-4 border-brand-200 border-t-brand-500"></div>
+  <div class="text-sm text-slate-500">达人数据加载中，请稍候…</div>
+</div>
 
 <header class="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur">
   <div class="mx-auto max-w-[1400px] px-6 py-3 flex items-center gap-3">
@@ -159,13 +170,32 @@ tailwind.config = { theme: { extend: { colors: { brand: { 50:'#fff1f3',100:'#ffe
 </div>
 
 
-<script src="avatars.js"></script>
-<script src="videos.js"></script>
-<script src="data.js"></script>
-<script src="tags.js"></script>
-<script src="attrs.js"></script>
-<script src="spam.js"></script>
 <script>
+/* 启动引导：页面骨架先渲染，数据文件并行加载（不阻塞首屏），全部就绪后执行主逻辑 */
+const DATA_SCRIPTS = ['avatars.js', 'videos.js', 'data.js', 'tags.js', 'attrs.js', 'spam.js'];
+function loadScript(src) {
+  return new Promise(function (res, rej) {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = res;
+    s.onerror = function () { rej(new Error(src + ' 加载失败')); };
+    document.head.appendChild(s);
+  });
+}
+async function boot() {
+  const el = document.getElementById('bootLoading');
+  try {
+    await Promise.all(DATA_SCRIPTS.map(loadScript));
+    main();
+    if (el) el.remove();
+  } catch (e) {
+    console.error(e);
+    if (el) el.innerHTML = '<div class="px-6 text-center text-sm text-brand-700">数据加载失败，请检查网络后刷新重试</div>';
+  }
+}
+</script>
+<script>
+function main() {
 /* ================= 配置 ================= */
 const INDUSTRIES = [
   { key: '3C及电器', emoji: '📱' }, { key: '食品饮料', emoji: '🍔' }, { key: '美妆', emoji: '💄' },
@@ -191,9 +221,9 @@ const authors = (window.REAL_AUTHORS || []).filter(a => !SPAM[a.id]).map(a => ({
   tag1: (REAL_TAGS[a.id] && REAL_TAGS[a.id][0]) || '-',
   tag2: (REAL_TAGS[a.id] && REAL_TAGS[a.id][1]) || '-',
   atype: a.atype || '-',
-  customPrice: (REAL_ATTRS[a.id] && REAL_ATTRS[a.id].price != null) ? REAL_ATTRS[a.id].price : null,
-  cpm60: (REAL_ATTRS[a.id] && REAL_ATTRS[a.id].cpm60 != null) ? REAL_ATTRS[a.id].cpm60 : null,
-  crowd: (REAL_ATTRS[a.id] && REAL_ATTRS[a.id].crowd) || null,
+  customPrice: (REAL_ATTRS[a.id] && REAL_ATTRS[a.id].p != null) ? REAL_ATTRS[a.id].p : null,
+  cpm60: (REAL_ATTRS[a.id] && REAL_ATTRS[a.id].c != null) ? REAL_ATTRS[a.id].c : null,
+  crowd: (REAL_ATTRS[a.id] && REAL_ATTRS[a.id].k) ? Object.fromEntries(CROWDS.map((c, i) => [c, REAL_ATTRS[a.id].k[i]])) : null,
   real: null, region: null, growth: null, finish: null,
   formula: null, hook: null,
   interact: a.interact, price: a.price, cpm: a.cpm,
@@ -806,7 +836,7 @@ const AV_BG = ['from-brand-400 to-brand-600', 'from-sky-400 to-sky-600', 'from-e
 function avatarHTML(a, size) {
   const url = AVATAR_MAP[a.id];
   const cls = `h-${size} w-${size}`;
-  if (url) return `<img src="${url}" alt="${a.name}" referrerpolicy="no-referrer" class="${cls} shrink-0 cursor-pointer rounded-full object-cover ring-1 ring-slate-200" data-detail="${a.id}">`;
+  if (url) return `<img src="${url}" alt="${a.name}" loading="lazy" referrerpolicy="no-referrer" class="${cls} shrink-0 cursor-pointer rounded-full object-cover ring-1 ring-slate-200" data-detail="${a.id}">`;
   const bg = AV_BG[(a.id.charCodeAt(a.id.length - 1) + a.name.length) % AV_BG.length];
   return `<span class="${cls} shrink-0 cursor-pointer flex items-center justify-center rounded-full bg-gradient-to-br ${bg} text-xs font-semibold text-white" data-detail="${a.id}" title="星图头像未回填，展示昵称首字">${a.name.slice(0, 1)}</span>`;
 }
@@ -865,7 +895,7 @@ function detailHTML(a) {
         ${b ? `
         <a href="${b.videoUrl}" target="_blank" rel="noopener" data-vlink="${a.id}" class="mt-3 block overflow-hidden rounded-xl">
           ${b.cover
-            ? `<img src="${b.cover}" class="h-44 w-full object-cover" referrerpolicy="no-referrer" />`
+            ? `<img src="${b.cover}" loading="lazy" class="h-44 w-full object-cover" referrerpolicy="no-referrer" />`
             : `<div class="flex h-44 items-center justify-center bg-gradient-to-br from-slate-800 to-slate-600 text-3xl text-white/80">▶</div>`}
         </a>
         <div class="mt-2 text-xs leading-relaxed text-slate-700">${c ? c.title : ''}</div>
@@ -1145,8 +1175,9 @@ function renderTrackStat() {
 function condText() {
   const a = (state.level.industry || state.level.quantile)
     ? `预期泛进店等级=${state.level.industry || '全行业'}${state.level.quantile ? '/' + state.level.quantile : ''}` : '预期泛进店等级=未筛选';
-  const lim = costLimit();
-  const b = lim != null ? `泛进店成本(不分行业)=${lim}以下` : '泛进店成本=未筛选';
+  const cr = costRange();
+  const b = cr == null ? '泛进店成本=未筛选'
+    : `泛进店成本(不分行业)=${cr.min != null && cr.max != null ? `${cr.min}~${cr.max}` : (cr.max != null ? `${cr.max}以下` : `${cr.min}以上`)}`;
   const c = auxTags().join('；');
   return `${a}；${b}${c ? '；' + c : ''}`;
 }
@@ -1165,6 +1196,19 @@ function buildMatrix() {
     a.brands.join(','), a.bestItem ? a.bestItem.videoUrl : '-', reasonText(a),
   ]);
   return { note, head, rows, width: head.length };
+}
+/* Excel 组件按需加载：首屏不加载 xlsx.full.min.js（约 880KB），点击导出时才动态加载 */
+function ensureXlsx() {
+  if (typeof XLSX !== 'undefined') return Promise.resolve();
+  if (window.__xlsxP) return window.__xlsxP;
+  window.__xlsxP = new Promise(function (res, rej) {
+    const s = document.createElement('script');
+    s.src = 'xlsx.full.min.js';
+    s.onload = function () { res(); };
+    s.onerror = function () { window.__xlsxP = null; rej(new Error('Excel 组件加载失败，请检查网络后重试')); };
+    document.head.appendChild(s);
+  });
+  return window.__xlsxP;
 }
 function exportXlsx() {
   if (typeof XLSX === 'undefined') { alert('Excel 组件未加载完成，请刷新页面后重试'); return; }
@@ -1192,14 +1236,21 @@ function exportXlsx() {
 }
 $('exportXlsx').onclick = e => {
   e.stopPropagation();
-  try { track('export_xlsx', { rows: exportRows().length, cond: condText() }); exportXlsx(); }
-  catch (err) { console.error(err); alert('导出失败：' + err.message); }
+  const btn = $('exportXlsx');
+  btn.disabled = true;
+  ensureXlsx().then(() => {
+    try { track('export_xlsx', { rows: exportRows().length, cond: condText() }); exportXlsx(); }
+    catch (err) { console.error(err); alert('导出失败：' + err.message); }
+  }).catch(err => alert(err.message))
+    .finally(() => { btn.disabled = false; });
 };
 
 
 track('page_view', { authors: authors.length });
 if (INTERNAL) renderTrackStat();
 render();
+}
+boot();
 </script>
 </body>
 </html>
