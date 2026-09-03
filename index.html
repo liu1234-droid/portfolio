@@ -188,11 +188,11 @@ if ('serviceWorker' in navigator) {
       <div class="text-sm font-semibold">内部统计 / 热力图</div>
       <button id="trackClose" class="btn-ghost">关闭</button>
     </div>
-    <div class="mb-2 text-[11px] leading-relaxed text-slate-400">统计查看页自身不计入；客户从普通页面打开后会立即上报访问数据。</div>
+    <div class="mb-2 text-[11px] leading-relaxed text-slate-400">统计查看页自身不计入。系统只能识别浏览器会话，不能可靠识别物理设备或自然人；默认展示全部会话。</div>
     <div class="mb-2 rounded-xl bg-slate-50 p-1 text-xs flex gap-1">
-      <button id="srcServer" class="flex-1 rounded-md px-2 py-1">全部访客</button>
-      <button id="srcServerEx" class="flex-1 rounded-md px-2 py-1">仅客户</button>
-      <button id="srcLocal" class="flex-1 rounded-md px-2 py-1">仅本机</button>
+      <button id="srcServer" class="flex-1 rounded-md px-2 py-1">全部会话</button>
+      <button id="srcServerEx" class="flex-1 rounded-md px-2 py-1">排除当前浏览器</button>
+      <button id="srcLocal" class="flex-1 rounded-md px-2 py-1">仅当前浏览器</button>
     </div>
     <div class="mb-2 flex flex-wrap gap-2">
       <a href="./" target="_blank" rel="noopener" class="btn-ghost">打开客户页</a>
@@ -1144,7 +1144,7 @@ document.addEventListener('click', e => {
 const KEY_EVENTS = ['click_author_order_link', 'click_reference_video', 'click_profile_entry', 'open_profile',
   'filter_click', 'filter_reset', 'sort_click', 'select_author', 'search', 'export_xlsx'];
 const keyEventCount = () => TRACK.filter(x => KEY_EVENTS.includes(x.ev)).length;
-const SRC_NAME = () => STAT_SRC === 'local' ? '本机' : (STAT_SRC === 'server_ex' ? '客户（已排除本机）' : '全部访客');
+const SRC_NAME = () => STAT_SRC === 'local' ? '当前浏览器' : (STAT_SRC === 'server_ex' ? '已排除当前浏览器' : '全部会话');
 // 热力图数据源：服务端聚合网格 [x,y,权重] 或本机原始点击
 const heatPoints = () => (STAT_SRC !== 'local' && SRV && SRV.points && SRV.points.length)
   ? SRV.points : CLICKS.map(c => [c.x, c.y, 1]);
@@ -1251,13 +1251,13 @@ else {
   if (qs.get('stats') === '1' || location.hash === '#stats') {
     toggleStats(true);
     $('trackPanel').classList.remove('hidden');
-    STAT_SRC = 'server_ex';
+    STAT_SRC = 'server';
     loadSummary();
   }
   if (qs.get('heat') === '1') {
     toggleStats(true);
     $('trackPanel').classList.remove('hidden');
-    STAT_SRC = 'server_ex';
+    STAT_SRC = 'server';
     loadSummary();
     setHeat(true);
   }
@@ -1290,8 +1290,8 @@ function renderTrackStat() {
   const keyRows = Object.entries(c).filter(([k]) => KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
   const othRows = Object.entries(c).filter(([k]) => !KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
   const head = STAT_SRC !== 'local'
-    ? `<div class="mb-1 text-[11px] text-slate-400">统计起点 2026/9/3 17:21 · ${SRC_NAME()} · 访问设备 ${SRV.uv} 台 · 发生操作 ${SRV.active_uv ?? 0} 台 · 关键行为 ${SRV.key_events} 次 · 点击 ${SRV.clicks} 次 · 事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`
-    : `<div class="mb-1 text-[11px] text-slate-400">仅本机 · 关键行为 ${keyEventCount()} 次 · 点击 ${CLICKS.length} 次 · 事件 ${TRACK.length} 条</div>`;
+    ? `<div class="mb-1 text-[11px] text-slate-400">统计起点 2026/9/3 17:21 · ${SRC_NAME()} · 访问会话 ${SRV.sessions ?? SRV.uv ?? 0} 个 · 发生操作 ${SRV.active_sessions ?? SRV.active_uv ?? 0} 个 · 关键行为 ${SRV.key_events} 次 · 点击 ${SRV.clicks} 次 · 事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`
+    : `<div class="mb-1 text-[11px] text-slate-400">仅当前浏览器 · 关键行为 ${keyEventCount()} 次 · 点击 ${CLICKS.length} 次 · 事件 ${TRACK.length} 条</div>`;
   $('trackStat').innerHTML = head +
     `<div class="mt-1 text-[11px] font-semibold text-slate-500">关键行为</div>${keyRows || '<span class="text-slate-400">暂无</span>'}
      <div class="mt-2 text-[11px] font-semibold text-slate-500">页面访问 / 其他点击（用于热力图）</div>${othRows || '<span class="text-slate-400">暂无</span>'}`;
