@@ -1069,6 +1069,8 @@ try {
 
 /* GitHub 静态版 + 外网埋点后端：页面仍托管在 GitHub Pages，事件/热力图聚合走独立服务 */
 const API_BASE = 'https://znxyvgsm.cn-east-fn.bytedance.net';
+/* 正式统计起点：此前事件均为上线自动化验证产生，全部排除 */
+const TRACK_SINCE_MS = 1788426240000; // 2026-09-03 17:04:00 CST
 let QUEUE = [], SRV_OK = true;
 function pushRemote(rec) {
   if (ANALYTICS_VIEW) return;            // 内部统计/热力图页面不计入客户埋点
@@ -1092,8 +1094,9 @@ let SRV = null;
 let STAT_SRC = 'local';
 async function loadSummary() {
   try {
-    const q = STAT_SRC === 'server_ex' ? ('?ex=' + encodeURIComponent(VID)) : '';
-    const r = await fetch(API_BASE + '/api/summary' + q, { mode: 'cors', cache: 'no-store' });
+    const qs = new URLSearchParams({ since: String(TRACK_SINCE_MS) });
+    if (STAT_SRC === 'server_ex') qs.set('ex', VID);
+    const r = await fetch(API_BASE + '/api/summary?' + qs.toString(), { mode: 'cors', cache: 'no-store' });
     SRV = await r.json(); SRV_OK = true;
   } catch (e) { SRV = null; SRV_OK = false; }
   renderTrackStat(); if (heatOn) drawHeat();
@@ -1279,7 +1282,7 @@ function renderTrackStat() {
   const keyRows = Object.entries(c).filter(([k]) => KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
   const othRows = Object.entries(c).filter(([k]) => !KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
   const head = STAT_SRC !== 'local'
-    ? `<div class="mb-1 text-[11px] text-slate-400">${SRC_NAME()} · 访客 ${SRV.uv} 人 · 关键行为 ${SRV.key_events} 次 · 点击 ${SRV.clicks} 次 · 事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`
+    ? `<div class="mb-1 text-[11px] text-slate-400">正式统计起点 2026/9/3 17:04 · ${SRC_NAME()} · 访客 ${SRV.uv} 人 · 关键行为 ${SRV.key_events} 次 · 点击 ${SRV.clicks} 次 · 事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`
     : `<div class="mb-1 text-[11px] text-slate-400">仅本机 · 关键行为 ${keyEventCount()} 次 · 点击 ${CLICKS.length} 次 · 事件 ${TRACK.length} 条</div>`;
   $('trackStat').innerHTML = head +
     `<div class="mt-1 text-[11px] font-semibold text-slate-500">关键行为</div>${keyRows || '<span class="text-slate-400">暂无</span>'}
