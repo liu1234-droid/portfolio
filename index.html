@@ -1210,7 +1210,9 @@ function setHeat(on) {
   }
   track('heatmap_toggle', { on: heatOn });
 }
-function initInternalUI() {
+function initInternalUI(autoHeat) {
+if (window.__FJD_UI_BOUND__) return;
+window.__FJD_UI_BOUND__ = true;
 document.addEventListener('keydown', e => {
   if (e.altKey && e.shiftKey && (e.key === 'H' || e.key === 'h' || e.code === 'KeyH')) { e.preventDefault(); toggleStats(); }
 });
@@ -1238,30 +1240,17 @@ $('trackExport').onclick = () => {
   el.download = `泛进店选人_埋点日志_本机_${TRACK.length}条.json`;
   el.click();
 };
-  // 内部版：进入即展开统计面板 + 默认开启「全部访客」热力图
+  // 初始化统计面板；是否自动打开热力图由入口参数决定
   toggleStats(true);
   STAT_SRC = 'server';
   $('trackPanel').classList.remove('hidden');
   loadSummary();
-  setHeat(true);
+  if (autoHeat) setHeat(true);
 }
-if (INTERNAL) initInternalUI();
-else {
-  const qs = new URLSearchParams(location.search);
-  if (qs.get('stats') === '1' || location.hash === '#stats') {
-    toggleStats(true);
-    $('trackPanel').classList.remove('hidden');
-    STAT_SRC = 'server';
-    loadSummary();
-  }
-  if (qs.get('heat') === '1') {
-    toggleStats(true);
-    $('trackPanel').classList.remove('hidden');
-    STAT_SRC = 'server';
-    loadSummary();
-    setHeat(true);
-  }
-}
+const analyticsQs = new URLSearchParams(location.search);
+if (INTERNAL) initInternalUI(true);
+else if (analyticsQs.get('heat') === '1') initInternalUI(true);
+else if (analyticsQs.get('stats') === '1' || location.hash === '#stats') initInternalUI(false);
 function renderTrackStat() {
   if (!$('trackStat')) return;                       // 对客版无内部 UI，直接跳过
   ['srcServer', 'srcServerEx', 'srcLocal'].forEach(id => {
