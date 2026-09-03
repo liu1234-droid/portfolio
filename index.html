@@ -1251,13 +1251,13 @@ else {
   if (qs.get('stats') === '1' || location.hash === '#stats') {
     toggleStats(true);
     $('trackPanel').classList.remove('hidden');
-    STAT_SRC = 'server';
+    STAT_SRC = 'server_ex';
     loadSummary();
   }
   if (qs.get('heat') === '1') {
     toggleStats(true);
     $('trackPanel').classList.remove('hidden');
-    STAT_SRC = 'server';
+    STAT_SRC = 'server_ex';
     loadSummary();
     setHeat(true);
   }
