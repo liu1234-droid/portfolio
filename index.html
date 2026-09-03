@@ -169,10 +169,45 @@ if ('serviceWorker' in navigator) {
   <div id="detailCard" class="mx-auto max-w-[1180px] rounded-2xl bg-gradient-to-b from-slate-50 to-white shadow-2xl"></div>
 </div>
 
+<!-- 埋点/热力图内部入口：默认隐藏，?stats=1 / ?heat=1 或 Alt+Shift+H 打开 -->
+<canvas id="heatCanvas" style="display:none"></canvas>
+<div id="heatBar" class="fixed left-1/2 top-4 z-[85] hidden -translate-x-1/2 items-center gap-3 rounded-full bg-slate-900/85 px-4 py-1.5 text-xs text-white shadow-lg">
+  <span id="heatBarText">🔥 热力图已开启</span>
+  <span class="hidden items-center gap-2 sm:inline-flex text-white/70">
+    <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-blue-500"></span><span>低</span></span>
+    <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-green-500"></span></span>
+    <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-yellow-400"></span></span>
+    <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-orange-500"></span></span>
+    <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-red-500"></span><span>高</span></span>
+  </span>
+</div>
+<div id="fabs" class="fabs hidden flex-col items-end gap-3">
+  <button id="trackFab" class="rounded-full bg-slate-900 px-4 py-2 text-xs font-medium text-white shadow-lg">内部统计 · 关键行为 <span id="trackCnt">0</span></button>
+  <div id="trackPanel" class="hidden w-[360px] rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
+    <div class="mb-2 flex items-center justify-between">
+      <div class="text-sm font-semibold">内部统计 / 热力图</div>
+      <button id="trackClose" class="btn-ghost">关闭</button>
+    </div>
+    <div class="mb-2 rounded-xl bg-slate-50 p-1 text-xs flex gap-1">
+      <button id="srcServer" class="flex-1 rounded-md px-2 py-1">全部访客</button>
+      <button id="srcServerEx" class="flex-1 rounded-md px-2 py-1">仅客户</button>
+      <button id="srcLocal" class="flex-1 rounded-md px-2 py-1">仅本机</button>
+    </div>
+    <div class="mb-2 flex flex-wrap gap-2">
+      <button id="heatToggle" class="btn-primary">开启热力图</button>
+      <button id="trackRefresh" class="btn-ghost">刷新</button>
+      <button id="trackExport" class="btn-ghost">导出日志</button>
+      <button id="trackClear" class="btn-ghost">清空本机</button>
+    </div>
+    <div id="trackStat" class="max-h-[360px] overflow-auto rounded-xl border border-slate-100 p-3 text-xs text-slate-600"></div>
+  </div>
+</div>
+
 
 <script>
-/* 启动引导：页面骨架先渲染，数据文件并行加载（不阻塞首屏），全部就绪后执行主逻辑 */
-const DATA_SCRIPTS = ['avatars.js', 'videos.js', 'data.js', 'tags.js', 'attrs.js', 'spam.js'];
+/* 启动引导：首屏只加载表格必需数据；头像/视频元数据延后加载，减少首次打开等待 */
+const CORE_SCRIPTS = ['data.js', 'tags.js', 'attrs.js', 'spam.js'];
+const RICH_SCRIPTS = ['avatars.js', 'videos.js'];
 function loadScript(src) {
   return new Promise(function (res, rej) {
     const s = document.createElement('script');
@@ -185,7 +220,7 @@ function loadScript(src) {
 async function boot() {
   const el = document.getElementById('bootLoading');
   try {
-    await Promise.all(DATA_SCRIPTS.map(loadScript));
+    await Promise.all(CORE_SCRIPTS.map(loadScript));
     main();
     if (el) el.remove();
   } catch (e) {
@@ -215,6 +250,7 @@ const META = window.REAL_META || {};
 const REAL_TAGS = window.REAL_TAGS || {};
 const REAL_ATTRS = window.REAL_ATTRS || {};
 const SPAM = window.SPAM_AUTHORS || {};   // 刷量达人（服务端vv >= 1.5×客户端vv 且 vv>=1w），前置过滤
+let richReady = false;
 const authors = (window.REAL_AUTHORS || []).filter(a => !SPAM[a.id]).map(a => ({
   id: a.id, name: a.name, avatar: a.avatar,
   fans: a.fans, fansLevel: a.fansLevel || fansLevel(a.fans),
@@ -228,17 +264,49 @@ const authors = (window.REAL_AUTHORS || []).filter(a => !SPAM[a.id]).map(a => ({
   formula: null, hook: null,
   interact: a.interact, price: a.price, cpm: a.cpm,
   brands: a.brands || [],
-  items: (a.it || []).map(t => {
-    const vm = (window.REAL_VIDEOS || {})[t[0]] || null;
-    return {
+  items: (a.it || []).map(t => ({
       itemId: t[0], industry: IND_KEYS[t[1]], play: t[2], enterPv: t[3],
       amount: t[4], convPv: t[5], gmv: t[6],
       videoUrl: 'https://www.douyin.com/video/' + t[0],
-      title: vm && vm.t ? vm.t : null, digg: vm ? vm.d : null, cover: vm ? vm.c : null, dur: vm ? vm.dur : null,
-    };
-  }),
+      title: null, digg: null, cover: null, dur: null,
+    })),
   link: 'https://www.xingtu.cn/ad/creator/author-homepage/douyin-video/' + a.id,
 }));
+let richPromise = null;
+function loadRichAssets() {
+  if (richReady) return Promise.resolve();
+  if (richPromise) return richPromise;
+  richPromise = Promise.all(RICH_SCRIPTS.map(loadScript)).then(() => {
+    const VM = window.REAL_VIDEOS || {};
+    authors.forEach(a => {
+      a.items.forEach(it => {
+        const vm = VM[it.itemId] || null;
+        if (!vm) return;
+        it.title = vm.t || null;
+        it.digg = vm.d != null ? vm.d : null;
+        it.cover = vm.c || null;
+        it.dur = vm.dur != null ? vm.dur : null;
+      });
+      const cand = a.items.filter(x => x.enterPv > 0);
+      a.bestItem = cand.length ? cand.map(x => ({
+        itemId: x.itemId, industry: x.industry, play: x.play, enterPv: x.enterPv,
+        amount: x.amount, convPv: x.convPv, gmv: x.gmv,
+        cost: +(x.amount / x.enterPv).toFixed(2), rate: x.enterPv / x.play,
+        url: x.videoUrl, videoUrl: x.videoUrl,
+        title: x.title, digg: x.digg, cover: x.cover, dur: x.dur,
+      })).sort((p, q) => (p.cost - q.cost) || (q.enterPv - p.enterPv))[0] : null;
+      a.workTitle = a.bestItem ? ('item ' + a.bestItem.itemId) : null;
+    });
+    richReady = true;
+    render();
+    const dm = $('detailMask');
+    if (dm && !dm.classList.contains('hidden')) {
+      const cur = $('detailCard').querySelector('[data-current-author]');
+      if (cur) openDetail(cur.dataset.currentAuthor);
+    }
+  }).catch(err => console.error(err));
+  return richPromise;
+}
 
 const sum = (arr, f) => arr.reduce((s, x) => s + f(x), 0);
 function cv(vals) {
@@ -831,10 +899,10 @@ $('selAll').onclick = () => { filtered().forEach(a => state.selected.add(a.id));
 $('selClear').onclick = () => { state.selected.clear(); render(); };
 
 /* ================= 达人图鉴 ================= */
-const AVATAR_MAP = window.REAL_AVATARS || {};
+const avatarUrlOf = id => ((window.REAL_AVATARS || {})[id] || '');
 const AV_BG = ['from-brand-400 to-brand-600', 'from-sky-400 to-sky-600', 'from-emerald-400 to-emerald-600', 'from-amber-400 to-amber-600', 'from-rose-400 to-rose-600', 'from-violet-400 to-violet-600'];
 function avatarHTML(a, size) {
-  const url = AVATAR_MAP[a.id];
+  const url = avatarUrlOf(a.id);
   const cls = `h-${size} w-${size}`;
   if (url) return `<img src="${url}" alt="${a.name}" loading="lazy" referrerpolicy="no-referrer" class="${cls} shrink-0 cursor-pointer rounded-full object-cover ring-1 ring-slate-200" data-detail="${a.id}">`;
   const bg = AV_BG[(a.id.charCodeAt(a.id.length - 1) + a.name.length) % AV_BG.length];
@@ -856,6 +924,7 @@ function detailHTML(a) {
       <span class="w-20 shrink-0 text-xs text-slate-400">${k}</span><span class="flex-1 text-xs leading-relaxed text-slate-700">${v}</span></div>`;
 
   return `
+  <div data-current-author="${a.id}" hidden></div>
   <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
     <div class="flex items-center gap-2">
       <span class="text-base font-semibold">达人图鉴</span>
@@ -978,6 +1047,7 @@ function openDetail(id) {
   document.body.style.overflow = 'hidden';
   $('detailCard').querySelectorAll('[data-close]').forEach(b => b.onclick = closeDetail);
   track('open_profile', { author: a.id, name: a.name });
+  loadRichAssets();
 }
 function closeDetail() { $('detailMask').classList.add('hidden'); document.body.style.overflow = ''; }
 $('detailMask').onclick = e => { if (e.target.id === 'detailMask') closeDetail(); };
@@ -995,13 +1065,40 @@ try {
   if (!VID) { VID = 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); localStorage.setItem(VID_KEY, VID); }
 } catch (e) { VID = 'v' + Math.random().toString(36).slice(2, 10); }
 
-/* GitHub 静态版：纯静态对外页面，不包含热力图/服务端埋点 */
+/* GitHub 静态版 + 外网埋点后端：页面仍托管在 GitHub Pages，事件/热力图聚合走独立服务 */
+const API_BASE = 'https://znxyvgsm.cn-east-fn.bytedance.net';
 let QUEUE = [], SRV_OK = true;
-function pushRemote(rec) { return; }
-function flushRemote(useBeacon) { return; }
+function pushRemote(rec) {
+  if (INTERNAL) return;                  // 内部看板不计入客户埋点
+  QUEUE.push(Object.assign({ vid: VID, path: location.pathname, href: location.href }, rec));
+  if (QUEUE.length >= 8) flushRemote(false);
+}
+function flushRemote(useBeacon) {
+  if (!QUEUE.length || !SRV_OK || INTERNAL) return;
+  const batch = QUEUE.splice(0, QUEUE.length);
+  const body = JSON.stringify({ vid: VID, events: batch, ua: navigator.userAgent, href: location.href, title: document.title });
+  if (useBeacon && navigator.sendBeacon) {
+    const ok = navigator.sendBeacon(API_BASE + '/api/collect', new Blob([body], { type: 'application/json' }));
+    if (!ok) QUEUE.unshift(...batch);
+    return;
+  }
+  fetch(API_BASE + '/api/collect', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body, keepalive: true, mode: 'cors'
+  }).catch(() => { SRV_OK = false; QUEUE.unshift(...batch); });
+}
 let SRV = null;
 let STAT_SRC = 'local';
-async function loadSummary() { SRV = null; SRV_OK = true; renderTrackStat(); if (heatOn) drawHeat(); }
+async function loadSummary() {
+  try {
+    const q = STAT_SRC === 'server_ex' ? ('?exclude_vid=' + encodeURIComponent(VID)) : '';
+    const r = await fetch(API_BASE + '/api/summary' + q, { mode: 'cors', cache: 'no-store' });
+    SRV = await r.json(); SRV_OK = true;
+  } catch (e) { SRV = null; SRV_OK = false; }
+  renderTrackStat(); if (heatOn) drawHeat();
+}
+window.addEventListener('pagehide', () => flushRemote(true));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushRemote(true); });
+setInterval(() => flushRemote(false), 5000);
 let TRACK = [];
 try { TRACK = JSON.parse(localStorage.getItem(TRACK_KEY) || '[]'); } catch (e) { TRACK = []; }
 let CLICKS = TRACK.filter(x => x.x != null).map(x => ({ x: x.x, y: x.y }));
@@ -1087,6 +1184,19 @@ function toggleStats(on) {
   el.style.display = show ? 'flex' : 'none';
   if (show) renderTrackStat();
 }
+function setHeat(on) {
+  heatOn = !!on;
+  $('heatCanvas').style.display = heatOn ? 'block' : 'none';
+  $('heatBar').style.display = heatOn ? 'flex' : 'none';
+  $('heatToggle').textContent = heatOn ? '关闭热力图' : '开启热力图';
+  if (heatOn) {
+    $('heatBarText').textContent = heatTotal()
+      ? `🔥 ${SRC_NAME()}热力图加载中…`
+      : `🔥 热力图已开启，但${SRC_NAME()}还没有点击数据——让客户先访问并操作页面，数据会自动上报`;
+    if (STAT_SRC !== 'local') loadSummary(); else drawHeat();
+  }
+  track('heatmap_toggle', { on: heatOn });
+}
 function initInternalUI() {
 document.addEventListener('keydown', e => {
   if (e.altKey && e.shiftKey && (e.key === 'H' || e.key === 'h' || e.code === 'KeyH')) { e.preventDefault(); toggleStats(); }
@@ -1105,23 +1215,10 @@ setInterval(() => {
   if ((open || heatOn) && STAT_SRC !== 'local') loadSummary();
 }, 15000);
 $('trackClose').onclick = () => $('trackPanel').classList.add('hidden');
-function setHeat(on) {
-  heatOn = !!on;
-  $('heatCanvas').style.display = heatOn ? 'block' : 'none';
-  $('heatBar').style.display = heatOn ? 'flex' : 'none';
-  $('heatToggle').textContent = heatOn ? '关闭热力图' : '开启热力图';
-  if (heatOn) {
-    $('heatBarText').textContent = heatTotal()
-      ? `🔥 ${SRC_NAME()}热力图加载中…`
-      : `🔥 热力图已开启，但${SRC_NAME()}还没有点击数据——让客户先访问并操作页面，数据会自动上报`;
-    if (STAT_SRC !== 'local') loadSummary(); else drawHeat();
-  }
-  track('heatmap_toggle', { on: heatOn });
-}
 $('heatToggle').onclick = () => setHeat(!heatOn);
 $('trackClear').onclick = () => { TRACK = []; CLICKS = []; localStorage.removeItem(TRACK_KEY); drawHeat(); renderTrackStat(); $('trackCnt').textContent = 0; };
 $('trackExport').onclick = () => {
-  if (STAT_SRC !== 'local') { window.open('/api/export', '_blank'); return; }   // 全部访客原始日志
+  if (STAT_SRC !== 'local') { window.open(API_BASE + '/api/export', '_blank'); return; }   // 全部访客原始日志
   const blob = new Blob([JSON.stringify({ exportAt: new Date().toISOString(), vid: VID, events: TRACK }, null, 2)], { type: 'application/json' });
   const el = document.createElement('a');
   el.href = URL.createObjectURL(blob);
@@ -1136,6 +1233,22 @@ $('trackExport').onclick = () => {
   setHeat(true);
 }
 if (INTERNAL) initInternalUI();
+else {
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('stats') === '1' || location.hash === '#stats') {
+    toggleStats(true);
+    $('trackPanel').classList.remove('hidden');
+    STAT_SRC = 'server';
+    loadSummary();
+  }
+  if (qs.get('heat') === '1') {
+    toggleStats(true);
+    $('trackPanel').classList.remove('hidden');
+    STAT_SRC = 'server';
+    loadSummary();
+    setHeat(true);
+  }
+}
 function renderTrackStat() {
   if (!$('trackStat')) return;                       // 对客版无内部 UI，直接跳过
   ['srcServer', 'srcServerEx', 'srcLocal'].forEach(id => {
@@ -1249,6 +1362,7 @@ $('exportXlsx').onclick = e => {
 track('page_view', { authors: authors.length });
 if (INTERNAL) renderTrackStat();
 render();
+setTimeout(() => { loadRichAssets(); }, 0);
 }
 boot();
 </script>

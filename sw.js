@@ -3,10 +3,11 @@
  * 效果：首次加载后，刷新/再次访问基本秒开；数据文件更新后下一次刷新自动生效。
  * 发布新版本时只需递增 CACHE 版本号即可让旧缓存失效。
  */
-const CACHE = 'fjd-picker-v1';
+const CACHE = 'fjd-picker-v2';
 const ASSETS = [
   './', 'index.html', 'styles.css',
-  'avatars.js', 'videos.js', 'data.js', 'tags.js', 'attrs.js', 'spam.js',
+  'data.js', 'tags.js', 'attrs.js', 'spam.js',
+  'avatars.js', 'videos.js',
   'xlsx.full.min.js',
 ];
 
