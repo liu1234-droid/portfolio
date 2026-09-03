@@ -1058,6 +1058,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(
 /* ================= 埋点 & 点击热力图（本机 localStorage + 服务端收集） =================
    客户版 /index.html 完全不含内部 UI，仅静默上报点击，供内部版汇总热力图 */
 const INTERNAL = !!window.__FJD_INTERNAL__;
+const ANALYTICS_VIEW = INTERNAL || new URLSearchParams(location.search).get('stats') === '1' || new URLSearchParams(location.search).get('heat') === '1';
 const TRACK_KEY = 'fjd_track_v1';
 const VID_KEY = 'fjd_vid_v1';
 let VID = '';
@@ -1070,12 +1071,12 @@ try {
 const API_BASE = 'https://znxyvgsm.cn-east-fn.bytedance.net';
 let QUEUE = [], SRV_OK = true;
 function pushRemote(rec) {
-  if (INTERNAL) return;                  // 内部看板不计入客户埋点
+  if (ANALYTICS_VIEW) return;            // 内部统计/热力图页面不计入客户埋点
   QUEUE.push(Object.assign({ vid: VID, path: location.pathname, href: location.href }, rec));
   if (QUEUE.length >= 8) flushRemote(false);
 }
 function flushRemote(useBeacon) {
-  if (!QUEUE.length || !SRV_OK || INTERNAL) return;
+  if (!QUEUE.length || !SRV_OK || ANALYTICS_VIEW) return;
   const batch = QUEUE.splice(0, QUEUE.length);
   const body = JSON.stringify({ vid: VID, events: batch, ua: navigator.userAgent, href: location.href, title: document.title });
   if (useBeacon && navigator.sendBeacon) {
@@ -1091,7 +1092,7 @@ let SRV = null;
 let STAT_SRC = 'local';
 async function loadSummary() {
   try {
-    const q = STAT_SRC === 'server_ex' ? ('?exclude_vid=' + encodeURIComponent(VID)) : '';
+    const q = STAT_SRC === 'server_ex' ? ('?ex=' + encodeURIComponent(VID)) : '';
     const r = await fetch(API_BASE + '/api/summary' + q, { mode: 'cors', cache: 'no-store' });
     SRV = await r.json(); SRV_OK = true;
   } catch (e) { SRV = null; SRV_OK = false; }
