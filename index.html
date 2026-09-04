@@ -1102,19 +1102,15 @@ let SRV = null;
 let STAT_SRC = 'local';
 async function loadSummary() {
   try {
+    const requestedSrc = STAT_SRC;
     const qs = new URLSearchParams({ since: String(TRACK_SINCE_MS) });
-    if (STAT_SRC === 'server_ex') qs.set('ex', VID);
-    const [sumRes, rawRes] = await Promise.all([
-      fetch(API_BASE + '/api/summary?' + qs.toString(), { mode: 'cors', cache: 'no-store' }),
-      fetch(API_BASE + '/api/export', { mode: 'cors', cache: 'no-store' }),
-    ]);
-    SRV = await sumRes.json();
-    // 后端旧口径会把不同Mac会话合并；以前端原始日志中的vid重新精确计算浏览器会话数。
-    const raw = await rawRes.text();
-    const rows = raw.split('\n').filter(Boolean).map(line => { try { return JSON.parse(line); } catch (_) { return null; } })
-      .filter(x => x && Number(x.srv_ts || 0) >= TRACK_SINCE_MS && !(STAT_SRC === 'server_ex' && x.vid === VID));
-    SRV.sessions = new Set(rows.filter(x => x.ev === 'page_view').map(x => x.vid).filter(Boolean)).size;
-    SRV.active_sessions = new Set(rows.filter(x => x.ev !== 'page_view').map(x => x.vid).filter(Boolean)).size;
+    if (requestedSrc === 'server_ex') qs.set('ex', VID);
+    if (requestedSrc === 'local') qs.set('only', VID);
+    const sumRes = await fetch(API_BASE + '/api/summary?' + qs.toString(), { mode: 'cors', cache: 'no-store' });
+    const next = await sumRes.json();
+    // 防止快速切换数据源时，较慢的旧请求覆盖当前结果。
+    if (requestedSrc !== STAT_SRC) return;
+    SRV = next;
     SRV_OK = true;
   } catch (e) { SRV = null; SRV_OK = false; }
   renderTrackStat(); if (heatOn) drawHeat();
@@ -1127,6 +1123,7 @@ try { TRACK = JSON.parse(localStorage.getItem(TRACK_KEY) || '[]'); } catch (e) {
 let CLICKS = TRACK.filter(x => x.x != null).map(x => ({ x: x.x, y: x.y }));
 function track(ev, props) {
   const rec = Object.assign({ ts: new Date().toISOString(), ev }, props || {});
+  if (ANALYTICS_VIEW) return rec;       // 分析页既不上报，也不写本地点击，避免污染“当前浏览器”
   TRACK.push(rec);
   if (TRACK.length > 4000) TRACK = TRACK.slice(-4000);
   try { localStorage.setItem(TRACK_KEY, JSON.stringify(TRACK.slice(-2000))); } catch (e) {}
@@ -1138,6 +1135,7 @@ function track(ev, props) {
 }
 // 全站点击：记录相对坐标（热力图）+ 关键动作事件
 document.addEventListener('click', e => {
+  if (ANALYTICS_VIEW) return;           // 统计面板自身的点击不进入任何热力图
   const x = +(e.clientX / Math.max(1, window.innerWidth)).toFixed(4);
   const y = +(e.pageY / Math.max(1, document.body.scrollHeight)).toFixed(4);
   CLICKS.push({ x, y });
@@ -1155,10 +1153,9 @@ const KEY_EVENTS = ['click_author_order_link', 'click_reference_video', 'click_p
   'filter_click', 'filter_reset', 'sort_click', 'select_author', 'search', 'export_xlsx'];
 const keyEventCount = () => TRACK.filter(x => KEY_EVENTS.includes(x.ev)).length;
 const SRC_NAME = () => STAT_SRC === 'local' ? '当前浏览器' : (STAT_SRC === 'server_ex' ? '已排除当前浏览器' : '全部会话');
-// 热力图数据源：服务端聚合网格 [x,y,权重] 或本机原始点击
-const heatPoints = () => (STAT_SRC !== 'local' && SRV && SRV.points && SRV.points.length)
-  ? SRV.points : CLICKS.map(c => [c.x, c.y, 1]);
-const heatTotal = () => (STAT_SRC !== 'local' && SRV) ? (SRV.clicks || 0) : CLICKS.length;
+// 三个视角都使用服务端同一口径聚合，避免本地缓存与服务端日志互相混用
+const heatPoints = () => (SRV && SRV.points) ? SRV.points : [];
+const heatTotal = () => SRV ? (SRV.clicks || 0) : 0;
 // 点击密度分级配色：<20% 蓝 / 20~40% 绿 / 40~60% 黄 / 60~80% 橙 / >80% 红
 function heatColor(r) {
   if (r < 0.2) return '59,130,246';
@@ -1216,7 +1213,7 @@ function setHeat(on) {
     $('heatBarText').textContent = heatTotal()
       ? `🔥 ${SRC_NAME()}热力图加载中…`
       : `🔥 热力图已开启，但${SRC_NAME()}还没有点击数据——让客户先访问并操作页面，数据会自动上报`;
-    if (STAT_SRC !== 'local') loadSummary(); else drawHeat();
+    loadSummary();
   }
   track('heatmap_toggle', { on: heatOn });
 }
@@ -1233,11 +1230,11 @@ $('trackFab').onclick = () => {
 };
 $('srcServer').onclick = () => { STAT_SRC = 'server'; SRV = null; renderTrackStat(); loadSummary(); };
 $('srcServerEx').onclick = () => { STAT_SRC = 'server_ex'; SRV = null; renderTrackStat(); loadSummary(); };
-$('srcLocal').onclick = () => { STAT_SRC = 'local'; renderTrackStat(); if (heatOn) drawHeat(); };
-$('trackRefresh').onclick = () => { if (STAT_SRC === 'local') { renderTrackStat(); drawHeat(); } else loadSummary(); };
+$('srcLocal').onclick = () => { STAT_SRC = 'local'; SRV = null; renderTrackStat(); loadSummary(); };
+$('trackRefresh').onclick = () => { SRV = null; renderTrackStat(); loadSummary(); };
 setInterval(() => {
   const open = $('fabs').style.display !== 'none' && !$('trackPanel').classList.contains('hidden');
-  if ((open || heatOn) && STAT_SRC !== 'local') loadSummary();
+  if (open || heatOn) loadSummary();
 }, 15000);
 $('trackClose').onclick = () => $('trackPanel').classList.add('hidden');
 $('heatToggle').onclick = () => setHeat(!heatOn);
@@ -1268,17 +1265,13 @@ function renderTrackStat() {
     const el = $(id); if (el) el.className = 'flex-1 rounded-md px-2 py-1 font-medium ' + (on ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-500');
   });
   const c = {};
-  if (STAT_SRC !== 'local') {
-    if (!SRV) {
-      $('trackStat').innerHTML = SRV_OK === false
-        ? ''
-        : '<div class="text-slate-400">加载中…</div>';
-      return;
-    }
-    Object.assign(c, SRV.counts || {});
-  } else {
-    TRACK.forEach(x => { c[x.ev] = (c[x.ev] || 0) + 1; });
+  if (!SRV) {
+    $('trackStat').innerHTML = SRV_OK === false
+      ? '<div class="text-rose-500">统计服务暂不可用，请稍后刷新。</div>'
+      : '<div class="text-slate-400">加载中…</div>';
+    return;
   }
+  Object.assign(c, SRV.counts || {});
   const NAME = {
     page_view: '页面访问', filter_click: '筛选点击', filter_reset: '重置筛选', sort_click: '列排序',
     select_author: '勾选达人', click_author_order_link: '点击达人昵称去下单', click_reference_video: '点击参考视频',
@@ -1288,11 +1281,9 @@ function renderTrackStat() {
   const line = ([k, v]) => `<div class="flex justify-between border-b border-dashed border-slate-100 py-1"><span>${NAME[k] || k}</span><span class="num font-medium">${v}</span></div>`;
   const keyRows = Object.entries(c).filter(([k]) => KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
   const othRows = Object.entries(c).filter(([k]) => !KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
-  const head = STAT_SRC !== 'local'
-    ? `<div class="mb-1 text-[11px] text-slate-400">统计起点 2026/9/3 17:21 · ${SRC_NAME()} · 访问会话 ${SRV.sessions ?? SRV.uv ?? 0} 个 · 发生操作 ${SRV.active_sessions ?? SRV.active_uv ?? 0} 个 · 关键行为 ${SRV.key_events} 次 · 有坐标点击 ${SRV.clicks} 次 · 原始事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`
-    : `<div class="mb-1 text-[11px] text-slate-400">仅当前浏览器 · 关键行为 ${keyEventCount()} 次 · 点击 ${CLICKS.length} 次 · 事件 ${TRACK.length} 条</div>`;
+  const head = `<div class="mb-1 text-[11px] text-slate-400">统计起点 2026/9/3 17:21 · ${SRC_NAME()} · 访问会话 ${SRV.sessions ?? 0} 个 · 发生操作 ${SRV.active_sessions ?? 0} 个 · 关键行为 ${SRV.key_events} 次 · 去重点击 ${SRV.clicks} 次 · 坐标事件 ${SRV.raw_coordinate_events ?? SRV.clicks} 条 · 原始事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`;
   $('trackStat').innerHTML = head +
-    `<div class="mb-2 text-[10px] leading-relaxed text-slate-400">口径：原始事件为去重前日志条数；同一次操作可能同时产生“业务行为”和“坐标点击”，两类指标不可直接相加。</div>
+    `<div class="mb-2 text-[10px] leading-relaxed text-slate-400">口径：三个视角均直接查询服务端原始日志。“仅当前浏览器”只保留当前浏览器 ID，“排除当前浏览器”剔除该 ID；同一次操作产生的业务事件与坐标事件分别保留，但热力图按浏览器、坐标和时间去重后只计算一次。</div>
      <div class="mt-1 text-[11px] font-semibold text-slate-500">关键行为</div>${keyRows || '<span class="text-slate-400">暂无</span>'}
      <div class="mt-2 text-[11px] font-semibold text-slate-500">页面访问 / 其他点击（用于热力图）</div>${othRows || '<span class="text-slate-400">暂无</span>'}`;
 }
