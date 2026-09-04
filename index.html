@@ -1078,7 +1078,7 @@ try {
 /* GitHub 静态版 + 外网埋点后端：页面仍托管在 GitHub Pages，事件/热力图聚合走独立服务 */
 const API_BASE = 'https://znxyvgsm.cn-east-fn.bytedance.net';
 /* 正式统计起点：此前事件均为上线自动化验证产生，全部排除 */
-const TRACK_SINCE_MS = 1788427260000; // 2026-09-03 17:21:00 CST
+const TRACK_SINCE_MS = 1788492600000; // 2026-09-04 11:30:00 CST
 let QUEUE = [], SRV_OK = true;
 function pushRemote(rec) {
   if (ANALYTICS_VIEW) return;            // 内部统计/热力图页面不计入客户埋点
@@ -1281,7 +1281,7 @@ function renderTrackStat() {
   const line = ([k, v]) => `<div class="flex justify-between border-b border-dashed border-slate-100 py-1"><span>${NAME[k] || k}</span><span class="num font-medium">${v}</span></div>`;
   const keyRows = Object.entries(c).filter(([k]) => KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
   const othRows = Object.entries(c).filter(([k]) => !KEY_EVENTS.includes(k)).sort((p, q) => q[1] - p[1]).map(line).join('');
-  const head = `<div class="mb-1 text-[11px] text-slate-400">统计起点 2026/9/3 17:21 · ${SRC_NAME()} · 访问会话 ${SRV.sessions ?? 0} 个 · 发生操作 ${SRV.active_sessions ?? 0} 个 · 关键行为 ${SRV.key_events} 次 · 去重点击 ${SRV.clicks} 次 · 坐标事件 ${SRV.raw_coordinate_events ?? SRV.clicks} 条 · 原始事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`;
+  const head = `<div class="mb-1 text-[11px] text-slate-400">统计起点 2026/9/4 11:30 · ${SRC_NAME()} · 访问会话 ${SRV.sessions ?? 0} 个 · 发生操作 ${SRV.active_sessions ?? 0} 个 · 关键行为 ${SRV.key_events} 次 · 去重点击 ${SRV.clicks} 次 · 坐标事件 ${SRV.raw_coordinate_events ?? SRV.clicks} 条 · 原始事件 ${SRV.events} 条${SRV.last_ts ? ' · 最近 ' + new Date(SRV.last_ts).toLocaleString('zh-CN') : ''}</div>`;
   $('trackStat').innerHTML = head +
     `<div class="mb-2 text-[10px] leading-relaxed text-slate-400">口径：三个视角均直接查询服务端原始日志。“仅当前浏览器”只保留当前浏览器 ID，“排除当前浏览器”剔除该 ID；同一次操作产生的业务事件与坐标事件分别保留，但热力图按浏览器、坐标和时间去重后只计算一次。</div>
      <div class="mt-1 text-[11px] font-semibold text-slate-500">关键行为</div>${keyRows || '<span class="text-slate-400">暂无</span>'}
